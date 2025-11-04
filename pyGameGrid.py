@@ -25,10 +25,11 @@ eg.gridPoint.initializeGrid(rows, cols)
 # IMPORTANT vx is y and vy is x (shoutout I setup the grid sideways)
 vx = np.zeros((rows, cols), dtype=np.float32)
 vy = np.zeros((rows, cols), dtype=np.float32)
+vd = np.zeros((rows, cols), dtype=np.float32)
 
 def somethingToColor(x):
     x = max(-60, min(60, x))
-    r = int(255 / (1 + math.exp(x/30)))
+    r = int((1 - 2**(-x))*255)
     return r,r,r
 
 def velocityToColor(vx_val, vy_val):
@@ -46,7 +47,10 @@ def drawVelocityField():
     for i in range(rows):
         for j in range(cols):
             #color = velocityToColor(vx[i, j], vy[i, j])
-            color = somethingToColor(vx[i, j])
+            color = somethingToColor(vd[i, j])
+            if i == 5 and j == 98:
+                print("woohoo", eg.gridPoint.grid[i][j].x, eg.gridPoint.grid[i][j].y)
+                color = 100,5,50
             rect = pygame.Rect(int(j * cell_w), int(i * cell_h), int(cell_w) + 1, int(cell_h) + 1)
             pygame.draw.rect(screen, color, rect)
 
@@ -58,9 +62,10 @@ def updateVelocityField():
     
     for i in range(rows):
         for j in range(cols):
-            v = eg.gridPoint.grid[i][j].velocity
-            vx[i, j] = float(v[0])
-            vy[i, j] = float(v[1])
+            v = eg.gridPoint.grid[i][j]
+            vx[i, j] = float(v.velocity[1])
+            vy[i, j] = float(v.velocity[0])
+            vd[i, j] = float(v.density)
 
 
 # --- Main Loop ---
@@ -73,6 +78,7 @@ while running:
     drawVelocityField()
     pygame.display.flip()
     time.sleep(0.3)
+    print("\n\n")
     #sys.quit
 
 
