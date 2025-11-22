@@ -3,7 +3,7 @@ import sys
 
 class gridPoint:
     grid = []
-    gravity = np.array([0, -9.8], dtype=float)
+    gravity = np.array([0, -0.098], dtype=float)
     viscosityCoefficient = 0.3
 
     def __init__(self, density, velocity, x, y):
@@ -22,7 +22,7 @@ class gridPoint:
         for i in range(yDim):
             row = []
             for j in range(xDim):
-                row.append(gridPoint(10, np.array([0,0], dtype=float), i, j))
+                row.append(gridPoint(10000, np.array([0,0], dtype=float), i, j))
             gridPoint.grid.append(row)
         gridPoint.gravity += otherForce
 
@@ -85,50 +85,13 @@ class gridPoint:
     
     def nextFrame2(self):
         self.velocity += self.acceleration
-        if  (self.velocity[0] + self.velocity[1]) == 0:
-            return
-        
-        velX = self.velocity[0]
-        velY = self.velocity[1]
-
-        targetX = gridPoint.grid[self.x + gridPoint.sign(velX)][self.y]
-        targetY = gridPoint.grid[self.x][self.y + gridPoint.sign(velY)]
-        percentageX = abs(velX) / (abs(velX) + abs(velY))
-        if not targetX.isSolid():
-            targetX.densityTemp += self.density * percentageX
-        if not targetY.isSolid():
-            targetY.densityTemp += self.density * (1-percentageX)
-
-        # not sure if this implmentation is correct, but I wanted to make it so if a cell is going to push density to
-        # a solid cell it just doesnt change the current density in that direction of velocity
-        '''
-        targetX = self.x + gridPoint.sign(velX)
-        targetY = self.y
-
-        if (gridPoint.grid[targetX][targetY].isSolid()):
-            self.densityTemp += self.density * percentageX
-        else :
-            gridPoint.grid[self.x + gridPoint.sign(velX)][self.y].densityTemp += self.density * percentageX
-        
-
-        targetX = self.x
-        targetY = self.y + gridPoint.sign(velY) 
-
-        if (gridPoint.grid[targetX][targetY].isSolid()):
-            self.densityTemp += self.density * percentageX
-        else :
-            gridPoint.grid[self.x + gridPoint.sign(velX)][self.y].densityTemp += self.density * percentageX
-
-        gridPoint.grid[self.x][self.y + gridPoint.sign(velY)].densityTemp += self.density * (1-percentageX)
-        '''
-        # bradley changes here
-
+        self.fluidMover()
 
     def nextFrame3(self):
         self.density = self.densityTemp
+        if self.density <= 0.001:
+            self.velocity = np.array([0,0], dtype=float)
         
-    # we probably need to make some changes to pressure gradient calculation so that shit
-    # wont flow into the solids 
     def calcPressure(self):
         if self.isSolid():
             pass
@@ -148,13 +111,35 @@ class gridPoint:
         return v
 
     def calcAcceleration(self):
-        if (self.x == 5) and self.y == 98:
+        if (self.x == 1) and self.y == 1:
            self.printInfo()
            for n in self.neighbours:
                
                n.printInfo()
-        return -self.calcPressure() + self.calcGravity() + self.calcViscosity()
+        return -self.calcPressure() + self.calcGravity()# + self.calcViscosity()
     
+    def fluidMover(self):
+        if  (self.velocity[0] + self.velocity[1]) == 0:
+            self.densityTemp = self.density
+            return
+        
+        velX = self.velocity[0]
+        velY = self.velocity[1]
+
+        targetX = gridPoint.grid[self.x + gridPoint.sign(velX)][self.y]
+        targetY = gridPoint.grid[self.x][self.y + gridPoint.sign(velY)]
+
+        if targetX.isSolid() and targetY.isSolid():
+            self.densityTemp = self.density
+        elif targetX.isSolid():
+            targetY.densityTemp += self.density
+        elif targetY.isSolid():
+            targetX.densityTemp += self.density
+        else:
+            percentageX = abs(velX) / (abs(velX) + abs(velY))
+            targetX.densityTemp += self.density * percentageX
+            targetY.densityTemp += self.density * (1-percentageX)
+
     def printInfo(self):
         print("solid   \t", self.isSolid())
         print("gridPoint\t", self.x, self.y)
@@ -171,7 +156,7 @@ class gridPointSolid(gridPoint):
         self.velocity = np.array([0,0])
         self.x = x
         self.y = y
-        self.density = 10000
+        self.density = 0
 
     def isSolid(self):
         return True
