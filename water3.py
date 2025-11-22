@@ -2,32 +2,33 @@ import math
 import random
 
 class Fluid():
-    def __init__(self, width, height, gravity, particleRadius, dt, numParticles, incompressibilityIters, overCompression=1.0):
+    def __init__(self, width, height, gravity, dt, numParticles, incompressibilityIters, overCompression=1.0):
         self.numCells = width * height
-        self.gravity = gravity
+        self.numCellsU = (width+1) * height
+        self.numCellsV = width * (height+1)
+        self.gravity = gravity * dt
 
         self.width = width
         self.height = height
-        self.particleRadius = particleRadius
         self.dt = dt
         self.numParticles = numParticles
         self.incompressibilityIters = incompressibilityIters
         self.overCompression = overCompression
 
-        self.u = [0] * ((width+1) * height)
-        self.v = [0] * (width * (height+1))
+        self.u = [0] * self.numCellsU
+        self.v = [0] * self.numCellsV
         self.density = [0] * self.numCells
         
         self.notSolid = [True] * self.numCells
-        self.notSolidU = [0] * ((width+1) * height)
-        self.notSolidV = [0] * (width * (height+1))
+        self.notSolidU = [0] * self.numCellsU
+        self.notSolidV = [0] * self.numCellsV
 
         self.isWater = [False] * self.numCells
-        self.isWaterU = [0] * ((width+1) * height)
-        self.isWaterV = [0] * (width * (height+1))
+        self.isWaterU = [0] * self.numCellsU
+        self.isWaterV = [0] * self.numCellsV
 
-        self.particleX = [random.randint(3, width-4) for _ in range(numParticles)]
-        self.particleY = [random.randint(3, height-4) for _ in range(numParticles)]
+        self.particleX = [random.uniform(3, int(width/3*2)-4) for _ in range(numParticles)]
+        self.particleY = [random.uniform(3, height-4) for _ in range(numParticles)]
         self.particleU = [0] * numParticles
         self.particleV = [0] * numParticles
 
@@ -35,8 +36,8 @@ class Fluid():
     
     def initSolids(self):
         self.notSolid = [True] * self.numCells
-        self.notSolidU = [1] * ((self.width+1) * self.height)
-        self.notSolidV = [1] * (self.width * (self.height+1))
+        self.notSolidU = [1] * self.numCellsU
+        self.notSolidV = [1] * self.numCellsV
 
         for i in range(self.width):
             self.notSolid[self.xy(i, 0)] = False
@@ -53,99 +54,77 @@ class Fluid():
                     self.notSolidV[self.xy(i  , j     )] = 0
                     self.notSolidV[self.xy(i  , j+1   )] = 0
 
-    def printAll(self, n):
-        if False:
-            print("\n step", n)
-            print("x", self.particleX)
-            print("y", self.particleY)
-            print("u", self.particleU)
-            print("v", self.particleV)
-            print("ugrid", self.u)
-            print("vgrid", self.v)
-
     def sim(self):
-        self.printAll(0)
-
-        self.move()
-
-        self.enforceOutOfBounds()
-
-        self.updateWaterUV()
-
-        self.particlesToGrid()
+        self.move(self.dt, self.width, self.height)
+        self.updateWaterUV(self.width, self.height)
+        self.particlesToGrid(self.width, self.height)
         self.enforceSolidUV()
-        self.printAll(1)
+        averageDensity = self.updateDensity(self.width, self.height)
+        self.enforceIncompressability(averageDensity)
+        self.gridToParticles(self.width, self.height)
 
-        self.enforceIncompressability()
-        self.printAll(2)
-
-        self.gridToParticles()
-        self.printAll(3)
-
-
-    def move(self):
+    def move(self, dt, width, height):
         for p in range(self.numParticles):
-            self.particleV[p] += (self.gravity * self.dt)
-            self.particleX[p] += (self.particleU[p] * self.dt)
-            self.particleY[p] += (self.particleV[p] * self.dt)
-   
-    def enforceOutOfBounds(self):
+            self.particleV[p] += (self.gravity)
+            self.particleX[p] += (self.particleU[p] * dt)
+            self.particleY[p] += (self.particleV[p] * dt)
+
+        width -= 1
+        height -= 1
         for p in range(self.numParticles):
-            if self.particleX[p] < 0:
-                self.particleX[p] = 0
+            if self.particleX[p] < 1:
+                self.particleX[p] = 1
                 self.particleU[p] = 0
-            if self.particleX[p] >= self.width:
-                self.particleX[p] = self.width - 0.001
+            elif self.particleX[p] > width:
+                self.particleX[p] = width
                 self.particleU[p] = 0
 
             if self.particleY[p] < 0:
                 self.particleY[p] = 0
                 self.particleV[p] = 0
-            if self.particleY[p] >= self.height:
-                self.particleY[p] = self.height - 0.001
+            elif self.particleY[p] > height:
+                self.particleY[p] = height
                 self.particleV[p] = 0
 
     def xy(self, x, y, isU=0):
         return x + y * (self.width + isU)
 
-    def clamp(self, z, small, big):
-        return max(small, min(big, z))
-
-    def clampFloor(self, z, small, big):
-        return max(small, min(big, math.floor(z)))
-
     def enforceSolidUV(self):
-        for i in range(self.width):
-            for j in range(self.height):
-                if not self.notSolid[self.xy(i, j)]:
-                    self.u[self.xy(i  , j  , 1)] = 0
-                    self.u[self.xy(i+1, j  , 1)] = 0
-                    self.v[self.xy(i  , j     )] = 0
-                    self.v[self.xy(i  , j+1   )] = 0
+        for i in range(self.numCellsU):
+            if not self.notSolidU[i]:
+                self.u[i] = 0
+        for i in range(self.numCellsV):
+            if not self.notSolidV[i]:
+                self.v[i] = 0
 
-    def updateWaterUV(self):
-        self.isWater = [False] * self.numCells
-        self.isWaterU = [0] * ((self.width+1) * self.height)
-        self.isWaterV = [0] * (self.width * (self.height+1))
+    def updateWaterUV(self, width, height):
+        isWater = [False] * self.numCells
+        isWaterU = [0] * self.numCellsU
+        isWaterV = [0] * self.numCellsV
 
         for p in range(self.numParticles):
-            ix = self.clampFloor(self.particleX[p], 0, self.width-1)
-            iy = self.clampFloor(self.particleY[p], 0, self.height-1)
-            self.isWater[self.xy(ix, iy)] = True
-        
-        for i in range(self.width):
-            for j in range(self.height):
-                if self.isWater[self.xy(i, j)]:
-                    self.isWaterU[self.xy(i  , j  , 1)] = 1
-                    self.isWaterU[self.xy(i+1, j  , 1)] = 1
-                    self.isWaterV[self.xy(i  , j     )] = 1
-                    self.isWaterV[self.xy(i  , j+1   )] = 1
+            ix = int(self.particleX[p])
+            iy = int(self.particleY[p])
+            
+            locV = ix + iy * width
+            if not isWater[locV]:
+                locU = ix + iy * (width + 1)
 
-    def interp(self, x, y, val, weights, grid, waterGrid, particleToGrid, isU=0):
-        x = self.clamp(x, 0, self.width-2)
-        y = self.clamp(y, 0, self.height-2)
-        ix = self.clampFloor(x, 0, self.width-2)
-        iy = self.clampFloor(y, 0, self.height-2)
+                isWater[locV] = True
+                isWaterU[locU      ] = 1
+                isWaterU[locU+1    ] = 1
+                isWaterV[locV      ] = 1
+                isWaterV[locV+width] = 1
+        
+        self.isWater = isWater
+        self.isWaterU = isWaterU
+        self.isWaterV = isWaterV
+
+    def interp(self, width, height, x, y, val, weights, grid, waterGrid, particleToGrid, isU=0, fillGrid=True):
+        x = min(x, width-2+isU)
+        y = min(y, height-2)
+        ix = int(x)
+        iy = int(y)
 
         tx = x - ix
         ty = y - iy
@@ -157,90 +136,94 @@ class Fluid():
         w2 = tx * ty
         w3 = sx * ty
 
-        if particleToGrid:
-            grid[self.xy(ix  , iy  )] += val * w0
-            grid[self.xy(ix+1, iy  )] += val * w1
-            grid[self.xy(ix+1, iy+1)] += val * w2
-            grid[self.xy(ix  , iy+1)] += val * w3
+        i0 = ix + iy * (width + isU)
+        i1 = i0 + 1
+        i2 = i1 + width + isU
+        i3 = i2 - 1
 
-            weights[self.xy(ix  , iy  , isU)] += w0
-            weights[self.xy(ix+1, iy  , isU)] += w1
-            weights[self.xy(ix+1, iy+1, isU)] += w2
-            weights[self.xy(ix  , iy+1, isU)] += w3
+        if particleToGrid:
+            if fillGrid:
+                grid[i0] += val * w0
+                grid[i1] += val * w1
+                grid[i2] += val * w2
+                grid[i3] += val * w3
+            weights[i0] += w0
+            weights[i1] += w1
+            weights[i2] += w2
+            weights[i3] += w3
         else:
-            valid0 = waterGrid[self.xy(ix  , iy  , isU)]
-            valid1 = waterGrid[self.xy(ix+1, iy  , isU)]
-            valid2 = waterGrid[self.xy(ix+1, iy+1, isU)]
-            valid3 = waterGrid[self.xy(ix  , iy+1, isU)]
+            valid0 = waterGrid[i0]
+            valid1 = waterGrid[i1]
+            valid2 = waterGrid[i2]
+            valid3 = waterGrid[i3]
 
             d = valid0 * w0 + valid1 * w1 + valid2 * w2 + valid3 * w3
 
             if d > 0:
-                return (valid0 * w0 * grid[self.xy(ix  , iy  , isU)] + 
-                        valid1 * w1 * grid[self.xy(ix+1, iy  , isU)] + 
-                        valid2 * w2 * grid[self.xy(ix+1, iy+1, isU)] + 
-                        valid3 * w3 * grid[self.xy(ix  , iy+1, isU)]) / d
+                return (valid0 * w0 * grid[i0] + 
+                        valid1 * w1 * grid[i1] + 
+                        valid2 * w2 * grid[i2] + 
+                        valid3 * w3 * grid[i3]) / d
             return 0
 
-    def updateDensity(self):
-        self.density = [0] * self.numCells
-        useless = [0] * self.numCells
+    def updateDensity(self, width, height):
+        density = [0] * self.numCells
         for p in range(self.numParticles):
-            self.interp(self.particleX[p], self.particleY[p], 0, self.density, useless, 0, True)
+            self.interp(width, height, self.particleX[p], self.particleY[p], 0, density, 0, 0, 1, 0, False)
         
         waterCount = 0
         densityCount = 0
-        for i in range(self.width):
-            for j in range(self.height):
-                if self.isWater[self.xy(i, j)]:
-                    waterCount += 1
-                    densityCount += self.density[self.xy(i, j)]
+        for i in range(self.numCells):
+            if self.isWater[i]:
+                waterCount += 1
+                densityCount += density[i]
         
+        self.density = density
         return densityCount / waterCount
 
-    def particlesToGrid(self):
-        self.u = [0] * ((self.width+1) * self.height)
-        self.v = [0] * (self.width * (self.height+1))
+    def particlesToGrid(self, width, height):
+        u = [0] * self.numCellsU
+        v = [0] * self.numCellsV
         
-        weights = [0] * ((self.width+1) * self.height)
+        weights = [0] * self.numCellsU
         for p in range(self.numParticles):
-            self.interp(self.particleX[p] + 0.5, self.particleY[p], self.particleU[p], weights, self.u, 0, True, 1)
-        for i in range(self.width+1):
-            for j in range(self.height):
-                if weights[self.xy(i, j, 1)] > 0:
-                    self.u[self.xy(i, j, 1)] /= weights[self.xy(i, j, 1)]
+            self.interp(width, height, self.particleX[p] + 0.5, self.particleY[p], self.particleU[p], weights, u, 0, True, 1)
+        for i in range(self.numCellsU):
+            if weights[i] > 0:
+                u[i] /= weights[i]
         
-        weights = [0] * (self.width * (self.height+1))
+        weights = [0] * self.numCellsV
         for p in range(self.numParticles):
-            self.interp(self.particleX[p], self.particleY[p] + 0.5, self.particleV[p], weights, self.v, 0, True)
-        for i in range(self.width):
-            for j in range(self.height+1):
-                if weights[self.xy(i, j)] > 0:
-                    self.v[self.xy(i, j)] /= weights[self.xy(i, j)]
+            self.interp(width, height, self.particleX[p], self.particleY[p] + 0.5, self.particleV[p], weights, v, 0, True)
+        for i in range(self.numCellsV):
+            if weights[i] > 0:
+                v[i] /= weights[i]
 
-    def gridToParticles(self):
+        self.u = u
+        self.v = v
+
+    def gridToParticles(self, width, height):
         for p in range(self.numParticles):
-            self.particleU[p] = self.interp(self.particleX[p] + 0.5, self.particleY[p], 0, 0, self.u, self.isWaterU, False, 1)
-        for p in range(self.numParticles):
-            self.particleV[p] = self.interp(self.particleX[p], self.particleY[p] + 0.5, 0, 0, self.v, self.isWaterV, False)
+            self.particleU[p] = self.interp(width, height, self.particleX[p] + 0.5, self.particleY[p], 0, 0, self.u, self.isWaterU, False, 1)
+            self.particleV[p] = self.interp(width, height, self.particleX[p], self.particleY[p] + 0.5, 0, 0, self.v, self.isWaterV, False)
 
     def calculateTotalDivergence(self):
         totalDivergence = 0
-        numSolids = 0
+        numWater = 0
         for x in range(self.width):
             for y in range(self.height):
                 if (self.notSolid[self.xy(x, y)]):
-                    numSolids += 1
+                    numWater += 1
                     totalDivergence += abs(self.u[self.xy(x+1, y  , 1)] - 
                                            self.u[self.xy(x  , y  , 1)] + 
                                            self.v[self.xy(x  , y+1   )] - 
                                            self.v[self.xy(x  , y     )])
-        return totalDivergence / numSolids
+        return totalDivergence / numWater
 
-    def enforceIncompressability(self):
-        averageDensity = self.updateDensity()
+    def enforceIncompressability(self, averageDensity):
         for _ in range(self.incompressibilityIters):
-            print("Average Divergence: ", self.calculateTotalDivergence())
+            #if _ % 5 == 0:
+            #    print("Average Divergence in", _, "runs:", self.calculateTotalDivergence())
             for x in range(self.width):
                 for y in range(self.height):
                     if (self.notSolid[self.xy(x, y)]):
@@ -259,10 +242,10 @@ class Fluid():
                         if (s == 0):
                             continue
                         
-                        #if averageDensity > 0:
-                        #    compression = self.density[self.xy(x, y)] - averageDensity
-                        #    if compression > 0:
-                        #        divergence -= compression
+                        if averageDensity > 0:
+                            compression = self.density[self.xy(x, y)] - averageDensity
+                            if compression > 0:
+                                divergence -= 1 * compression
 
                         divergence = -divergence / s
 
